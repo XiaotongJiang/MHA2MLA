@@ -254,8 +254,11 @@ if __name__ == "__main__":
         config = yaml.safe_load(fin)
     if "SVD" in config["model"]["model_config"] and config["model"]["model_config"]["SVD"]["method"]!=0:
         mla_monkey_patch(config["model"]["model_config"]["RoPE"])
-    else:
+    elif "RoPE" in config["model"]["model_config"]:
         partial_rope_monkey_patch(config["model"]["model_config"]["RoPE"])
+    else:
+        print("No monkey patch")
+        partial_rope_monkey_patch(None)
     from nanotron import trainer as nt_trainer
     # Load trainer and data
     trainer = nt_trainer.DistributedTrainer(config_file,config_class=CustomConfig)

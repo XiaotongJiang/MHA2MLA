@@ -29,21 +29,13 @@ use_constant_with_warmup_decay_scheduler: true
 lr_scheduler_kwargs: {"lr_decay_starting_step": 16200, "lr_decay_steps": 1800, "lr_decay_style": "1-sqrt", "lr_warmup_steps": 900, "lr_warmup_style": "linear", "min_decay_lr": 0}
 
 # ModelArguments
-model_name_or_path: /home/binguo/data/models/HuggingFaceTB/SmolLM-135M
-tokenizer_name_or_path: /home/binguo/data/models/HuggingFaceTB/SmolLM-135M
+model_name_or_path: meta-llama/Llama-3.2-1B
+tokenizer_name_or_path: meta-llama/Llama-3.2-1B
 
 # DataArguments
 is_nanoset: true
 dataset_folders:
-  - ~/local/smollm1_corpus/fineweb-edu-dedup/
-  - ~/local/smollm1_corpus/cosmopedia-v2/
-  - ~/local/smollm1_corpus/python-edu/
-  - ~/local/smollm1_corpus/open-web-math/
-  - ~/local/smollm1_corpus/stackoverflow/
+  - ~/local/stackoverflow_1B
 dataset_weights: # 各数据集的权重
-  - 0.7
-  - 0.15
-  - 0.08
-  - 0.06
-  - 0.01
+  - 1.0
 sequence_length: 2048

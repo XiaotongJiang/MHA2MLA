@@ -25,7 +25,7 @@ general:
   consumed_train_samples: null
   ignore_sanity_checks: true
   project: mla_smollm_ft_nt
-  run: 1B_svd_method7
+  run: 1B_2norm_lr5e5_rope16_theta_131k_ropev7
   seed: 42 # 8
   step: null
 logging:
@@ -54,13 +54,13 @@ model:
     pretraining_tp: 1
     rms_norm_eps: 1.0e-05
     rope_scaling: null
-    rope_theta: 500000.0
+    rope_theta: 79760692.22
     tie_word_embeddings: true
     use_cache: true
     vocab_size: 128256
     RoPE:
-      partial_rope_version: 1   # Top-K keep-rotated
-      top_k_rope_dim: 4       # or even 1 — just > 0
+      partial_rope_version: 7   # Top-K keep-rotated
+      top_k_rope_dim: 16       # or even 1 — just > 0
       last_k_rope_dim: 0
       uniform_start_point: 0
       uniform_step: 1
@@ -68,7 +68,7 @@ model:
       n_gqa_group: 4
     SVD:
       method: 7
-      low_rank: 32 # multiply by num kv heads (32 * 8 = 256)
+      low_rank: 16 # multiply by num kv heads (32 * 8 = 256)
 
 optimizer:
   accumulate_grad_in_fp32: false

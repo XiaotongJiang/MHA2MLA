@@ -1,6 +1,6 @@
 # SmolLM1 1.7B trained on 1T tokens
 checkpoints:
-  checkpoint_interval: 2000
+  checkpoint_interval: 12000
   checkpoints_path: ../checkpoints/test
   checkpoints_path_is_shared_file_system: false
   resume_checkpoint_path: /root/data/models/meta-llama/Llama-3.2-1B_nt
@@ -25,7 +25,7 @@ general:
   consumed_train_samples: null
   ignore_sanity_checks: true
   project: mla_smollm_ft_nt
-  run: 1B_svd_method7
+  run: 1B_2norm_lr1e5_rope16_theta_131k_svd3-32
   seed: 42 # 8
   step: null
 logging:
@@ -54,27 +54,28 @@ model:
     pretraining_tp: 1
     rms_norm_eps: 1.0e-05
     rope_scaling: null
-    rope_theta: 500000.0
+    rope_theta: 79760692.22
     tie_word_embeddings: true
     use_cache: true
     vocab_size: 128256
     RoPE:
       partial_rope_version: 1   # Top-K keep-rotated
-      top_k_rope_dim: 4       # or even 1 — just > 0
+      top_k_rope_dim: 16        # or even 1 — just > 0
       last_k_rope_dim: 0
       uniform_start_point: 0
       uniform_step: 1
       qk_tensor_path: ""        # not used by v1
       n_gqa_group: 4
+      top_k_rope_head: 1
     SVD:
-      method: 7
+      method: 3
       low_rank: 32 # multiply by num kv heads (32 * 8 = 256)
 
 optimizer:
   accumulate_grad_in_fp32: false
   clip_grad: 1.0
   learning_rate_scheduler:
-    learning_rate: 0.00005 # 0.0005
+    learning_rate: 0.00001 # 0.0005
     lr_decay_starting_step: 10000 # 400000
     lr_decay_steps: 2000 # 100000
     lr_decay_style: 1-sqrt

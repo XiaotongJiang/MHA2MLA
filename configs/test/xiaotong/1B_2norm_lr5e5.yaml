@@ -25,7 +25,7 @@ general:
   consumed_train_samples: null
   ignore_sanity_checks: true
   project: mla_smollm_ft_nt
-  run: 1B_svd_method7
+  run: 1B_2norm_lr5e5
   seed: 42 # 8
   step: null
 logging:
