@@ -9,8 +9,12 @@ from argparse import ArgumentParser
 from pathlib import Path
 from typing import Literal, Optional
 
+# Ensure the parent src directory is in Python path to allow absolute imports
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 import torch
-from .convert_weights import get_config_mapping, get_weight_mapping, load_nanotron_model
+from convert_weights import get_config_mapping, get_weight_mapping, load_nanotron_model
 from nanotron.config import LlamaConfig as NanotronLlamaConfig
 from nanotron.models import init_on_device_and_dtype
 from nanotron.models.llama import LlamaForTraining
@@ -97,8 +101,69 @@ def get_hf_config(config: NanotronLlamaConfig) -> HFLlamaConfig:
     attrs = {key: getattr(config, value) for key, value in get_config_mapping(nt_to_hf=False).items() if hasattr(config, value)}
     return HFLlamaConfig(**attrs)
 
+def shuffle_q_proj_based_on_pe_nope(attn, rope_config: dict, q_head_num: int):
+    if rope_config['partial_rope_version'] == 1:
+        original_q_proj = attn.q_proj.weight
+        original_q_proj_per_head = original_q_proj.view(original_q_proj.shape[0], q_head_num, -1)
 
-def convert_checkpoint_and_save(checkpoint_path: Path, save_path: Path, tokenizer_name: Optional[str] = None):
+        original_w_k_r = attn.W_k_r.weight
+        original_w_down_k = attn.W_down_k.weight
+        original_w_up_k = attn.W_up_k.weight
+        # shuffle
+        keep_dim = rope_config['top_k_rope_dim']
+        half = original_q_proj_per_head.size(-1) // 2
+        q_proj_nope = torch.cat(
+            (
+                original_q_proj_per_head[..., keep_dim:half],
+                original_q_proj_per_head[..., half + keep_dim :],
+            ),
+            dim=-1
+        ).view(original_q_proj_per_head.shape[0], -1)
+        # q_proj_nope_to_be_absorbed = q_proj_nope.view(q_proj_nope.shape[0], rope_config["n_gqa_group"], -1) # shape: (2048, 4, 256)
+        # q_proj_nope_absorbed = torch.matmul(q_proj_nope_to_be_absorbed, original_w_up_k.T).reshape(q_proj_nope_to_be_absorbed.shape[0], -1)
+        # # shape q_proj_nope_absorbed: (output 2048, input: 4, 256), original_w_up_k: (output 256, input 256) and q_proj_nope_absorbed is (2048, 1024)
+
+        q_proj_rope = torch.cat(
+            (
+                original_q_proj_per_head[..., :keep_dim],
+                original_q_proj_per_head[..., half : half + keep_dim],
+            ),
+            dim=-1
+        ).view(original_q_proj_per_head.shape[0], -1)
+
+        new_q_proj = torch.cat((q_proj_nope, q_proj_rope), dim=-1)
+        attn.q_proj = torch.nn.Linear(new_q_proj.shape[1], new_q_proj.shape[0], bias=False)
+        attn.q_proj.weight = torch.nn.Parameter(new_q_proj)
+
+    else:
+        # TODO implement for other partial_rope_version
+        return
+
+def post_convert_hf_model_for_sglang(hf_model: LlamaForCausalLM, model_config: NanotronLlamaConfig):
+    # Combine w_up_v and o_proj weights for MLA optimization
+    for layer in hf_model.model.layers:
+        # Q_proj = [(Q_proj_nope) x (W_up_k)] + Q_proj_rope]
+        shuffle_q_proj_based_on_pe_nope(layer.self_attn, model_config.RoPE, model_config.num_attention_heads)
+
+        # kv_a_proj_with_mqa = [W_down_k, W_k_r]
+        kv_a_proj_with_mqa = torch.cat([layer.self_attn.W_down_k.weight, layer.self_attn.W_k_r.weight], dim=0)
+        layer.self_attn.kv_a_proj_with_mqa = torch.nn.Linear(kv_a_proj_with_mqa.shape[1], kv_a_proj_with_mqa.shape[0], bias=False)
+        layer.self_attn.kv_a_proj_with_mqa.weight = torch.nn.Parameter(kv_a_proj_with_mqa)
+        
+        # kv_b_proj = [W_up_k, W_up_v]
+        kv_b_proj = torch.cat([layer.self_attn.W_up_k.weight, layer.self_attn.W_up_v.weight], dim=0) # need to confirm??
+        layer.self_attn.kv_b_proj = torch.nn.Linear(kv_b_proj.shape[1], kv_b_proj.shape[0], bias=False)
+        layer.self_attn.kv_b_proj.weight = torch.nn.Parameter(kv_b_proj)
+
+        # O_proj = o_proj * w_up_v
+        o_proj = layer.self_attn.o_proj.weight
+        w_up_v = layer.self_attn.W_up_v.weight.repeat(o_proj.shape[0] // layer.self_attn.W_up_v.weight.shape[0], 1) # repeat for group
+        new_o_proj = torch.matmul(o_proj, w_up_v)
+        layer.self_attn.o_proj = torch.nn.Linear(new_o_proj.shape[1], new_o_proj.shape[0], bias=False)
+        layer.self_attn.o_proj.weight = torch.nn.Parameter(new_o_proj)
+
+
+def convert_checkpoint_and_save(checkpoint_path: Path, save_path: Path, tokenizer_name: Optional[str] = None, for_sglang: bool = False):
     """Loads the nanotron checkpoint in `checkpoint_path`, creates
     a new huggingface instance, copies the weights from the nanotron checkpoint
     and saves the transformed huggingface to `save_path`."""
@@ -121,6 +186,7 @@ def convert_checkpoint_and_save(checkpoint_path: Path, save_path: Path, tokenize
         tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
         tokenizer.save_pretrained(save_path)
     convert_nt_to_hf(nanotron_model, hf_model, model_config)
+    post_convert_hf_model_for_sglang(hf_model, model_config)
     hf_model.save_pretrained(save_path)
     print(f"Model saved to {save_path}")
 
@@ -145,39 +211,41 @@ if __name__ == "__main__":
     parser.add_argument("--tokenizer_name", type=str, default="meta-llama/Llama-2-7b-chat-hf")
     parser.add_argument("--is_mla", action="store_true", help="Whether the model is an MLA model")
     parser.add_argument("--auto_encoder", action="store_true", help="Whether the model is using auto-encoder")
+    parser.add_argument("--for_sglang", action="store_true", help="Whether the hf model will be served for sglang")
     args = parser.parse_args()
     with open(os.path.join(args.checkpoint_path,"model_config.json")) as f:
         config = json.load(f)
     if "RoPE" in config:
         # partial RoPE
-        from ..mha2mla.monkey_patch import partial_rope_monkey_patch as partial_rope_monkey_patch_hf
-        from ..mha2mla_nt.monkey_patch import CustomLlamaConfig,partial_rope_monkey_patch as partial_rope_monkey_patch_nt
+        from mha2mla.monkey_patch import partial_rope_monkey_patch as partial_rope_monkey_patch_hf
+        from mha2mla_nt.monkey_patch import CustomLlamaConfig,partial_rope_monkey_patch as partial_rope_monkey_patch_nt
         partial_rope_monkey_patch_hf(config["RoPE"])
         partial_rope_monkey_patch_nt(config["RoPE"])
         globals()["NanotronLlamaConfig"] = CustomLlamaConfig
     if args.is_mla:
-        from ..mha2mla.monkey_patch import mla_monkey_patch as mla_monkey_patch_hf
-        from ..mha2mla_nt.monkey_patch import mla_monkey_patch as mla_monkey_patch_nt
+        from mha2mla.monkey_patch import mla_monkey_patch as mla_monkey_patch_hf
+        from mha2mla_nt.monkey_patch import mla_monkey_patch as mla_monkey_patch_nt
         with open(os.path.join(args.checkpoint_path,"model_config.json")) as f:
             config = json.load(f)
         mla_monkey_patch_hf(config["RoPE"])
         mla_monkey_patch_nt(config["RoPE"])
+
     if args.auto_encoder:
         with open(os.path.join(args.checkpoint_path,"model_config.json")) as f:
             config = json.load(f)
-        from ..auto_encoder.patch_func_hf import ae_patch_func_hf
-        from ..auto_encoder.patch_func_nt import ae_patch_func_nt,CustomLlamaConfig
+        from auto_encoder.patch_func_hf import ae_patch_func_hf
+        from auto_encoder.patch_func_nt import ae_patch_func_nt,CustomLlamaConfig
         ae_patch_func_nt(config["RoPE"])
         ae_patch_func_hf(config["RoPE"])
         globals()["NanotronLlamaConfig"] = CustomLlamaConfig
     if not args.is_mla and not args.auto_encoder:
-        from .original_convert_weights import get_weight_mapping as original_get_weight_mapping
-        from .original_convert_weights import load_nanotron_model as original_load_nanotron_model
+        from original_convert_weights import get_weight_mapping as original_get_weight_mapping
+        from original_convert_weights import load_nanotron_model as original_load_nanotron_model
         get_weight_mapping = original_get_weight_mapping
         load_nanotron_model = original_load_nanotron_model
     # Convert Nanotron model to HF format.
     convert_checkpoint_and_save(
-        checkpoint_path=args.checkpoint_path, save_path=args.save_path, tokenizer_name=args.tokenizer_name
+        checkpoint_path=args.checkpoint_path, save_path=args.save_path, tokenizer_name=args.tokenizer_name, for_sglang=args.for_sglang
     )
 
     # Check if the conversion was successful by generating some text.
