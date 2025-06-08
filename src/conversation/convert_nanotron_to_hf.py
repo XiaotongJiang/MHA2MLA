@@ -104,6 +104,8 @@ def get_hf_config(config: NanotronLlamaConfig) -> HFLlamaConfig:
 def shuffle_q_proj_based_on_pe_nope(attn, rope_config: dict, q_head_num: int):
     if rope_config['partial_rope_version'] == 1:
         original_q_proj = attn.q_proj.weight
+        # lets do transpose so that we'll operate over the second dim as the output dim.
+        original_q_proj = original_q_proj.T
         original_q_proj_per_head = original_q_proj.view(original_q_proj.shape[0], q_head_num, -1)
 
         original_w_k_r = attn.W_k_r.weight
@@ -132,6 +134,8 @@ def shuffle_q_proj_based_on_pe_nope(attn, rope_config: dict, q_head_num: int):
         ).view(original_q_proj_per_head.shape[0], -1)
 
         new_q_proj = torch.cat((q_proj_nope, q_proj_rope), dim=-1)
+        # transpose back, so that second dim become first dim.
+        new_q_proj = new_q_proj.T
         attn.q_proj = torch.nn.Linear(new_q_proj.shape[1], new_q_proj.shape[0], bias=False)
         attn.q_proj.weight = torch.nn.Parameter(new_q_proj)
 
@@ -215,7 +219,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     with open(os.path.join(args.checkpoint_path,"model_config.json")) as f:
         config = json.load(f)
-        config = json.load(f) 
+        # config = json.load(f) 
     if "RoPE" in config:
         # partial RoPE
         from mha2mla.monkey_patch import partial_rope_monkey_patch as partial_rope_monkey_patch_hf
