@@ -155,12 +155,12 @@ def post_convert_hf_model_for_sglang(hf_model: LlamaForCausalLM, model_config: N
         layer.self_attn.kv_b_proj = torch.nn.Linear(kv_b_proj.shape[1], kv_b_proj.shape[0], bias=False)
         layer.self_attn.kv_b_proj.weight = torch.nn.Parameter(kv_b_proj)
 
-        # O_proj = o_proj * w_up_v
-        o_proj = layer.self_attn.o_proj.weight
-        w_up_v = layer.self_attn.W_up_v.weight.repeat(o_proj.shape[0] // layer.self_attn.W_up_v.weight.shape[0], 1) # repeat for group
-        new_o_proj = torch.matmul(o_proj, w_up_v)
-        layer.self_attn.o_proj = torch.nn.Linear(new_o_proj.shape[1], new_o_proj.shape[0], bias=False)
-        layer.self_attn.o_proj.weight = torch.nn.Parameter(new_o_proj)
+        # # O_proj = o_proj * w_up_v
+        # o_proj = layer.self_attn.o_proj.weight
+        # w_up_v = layer.self_attn.W_up_v.weight.repeat(o_proj.shape[0] // layer.self_attn.W_up_v.weight.shape[0], 1) # repeat for group
+        # new_o_proj = torch.matmul(o_proj, w_up_v)
+        # layer.self_attn.o_proj = torch.nn.Linear(new_o_proj.shape[1], new_o_proj.shape[0], bias=False)
+        # layer.self_attn.o_proj.weight = torch.nn.Parameter(new_o_proj)
 
 
 def convert_checkpoint_and_save(checkpoint_path: Path, save_path: Path, tokenizer_name: Optional[str] = None, for_sglang: bool = False):
@@ -215,6 +215,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     with open(os.path.join(args.checkpoint_path,"model_config.json")) as f:
         config = json.load(f)
+        config = json.load(f) 
     if "RoPE" in config:
         # partial RoPE
         from mha2mla.monkey_patch import partial_rope_monkey_patch as partial_rope_monkey_patch_hf
