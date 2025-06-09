@@ -1018,12 +1018,10 @@ class CustomCausalSelfAttention(nn.Module, AttachableStore):
     ):
         from flash_attn import bert_padding
         from flash_attn.flash_attn_interface import flash_attn_varlen_func
-
         query_states = self.q_proj(
             hidden_states
         )  # [seq_length, batch_size, n_local_q_heads * d_qk]
         q_length, batch_size, _ = query_states.shape
-
         query_states = (
             query_states.transpose(0, 1)
             .contiguous()
@@ -1062,6 +1060,7 @@ class CustomCausalSelfAttention(nn.Module, AttachableStore):
             .contiguous()
             .view(batch_size, q_length, self.n_local_kv_heads, self.d_qk)
         )  # [batch_size, seq_length, n_local_kv_heads, d_qk]
+
         c_kv = (
             c_kv.transpose(0, 1).contiguous().view(batch_size, q_length, -1)
         )  # [batch_size, seq_length, -1]
@@ -1132,7 +1131,6 @@ class CustomCausalSelfAttention(nn.Module, AttachableStore):
             .transpose(0, 1)
         )
         output = self.o_proj(attention_output)
-
         return {
             "hidden_states": output,
             "sequence_mask": sequence_mask,

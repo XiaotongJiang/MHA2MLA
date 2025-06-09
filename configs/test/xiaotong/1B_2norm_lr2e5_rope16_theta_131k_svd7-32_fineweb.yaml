@@ -3,7 +3,7 @@ checkpoints:
   checkpoint_interval: 12000
   checkpoints_path: ../checkpoints/test
   checkpoints_path_is_shared_file_system: false
-  resume_checkpoint_path: /home/jiangxiaotong728/llama_1b_nt
+  resume_checkpoint_path: /home/jiangxiaotong728/MHA2MLA/checkpoints/test/12000
   save_final_state: false
   save_initial_state: false
   load_lr_scheduler: false
