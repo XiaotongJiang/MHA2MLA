@@ -263,12 +263,6 @@ if __name__ == "__main__":
     from nanotron import trainer as nt_trainer
     # Load trainer and data
     trainer = nt_trainer.DistributedTrainer(config_file,config_class=CustomConfig)
-    x = torch.tensor([[1, 2]], dtype=torch.int32).cuda()
-    mask = torch.ones((1, 2), dtype=torch.bool).cuda()
-    output1 = trainer.model(x, mask, x, mask)
-    x = torch.tensor([[1, 2, 16]], dtype=torch.int32).cuda()
-    mask = torch.ones((1, 3), dtype=torch.bool).cuda()
-    output2 = trainer.model(x, mask, x, mask)
     dataloader = get_dataloader(trainer)
 
     # Train
